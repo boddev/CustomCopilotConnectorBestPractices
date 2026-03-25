@@ -1405,54 +1405,7 @@ Monitor connector health in the **M365 Admin Center** under **Search & intellige
 
 ---
 
-## Appendix A: Cross-Reference Reconciliation (GPT-5.4 & Codex-5.3)
-
-This document was independently reviewed by **GPT-5.4** and **GPT-5.3-Codex**. The following summarizes all findings and how they were reconciled:
-
-### Agreed Findings (Both Models)
-
-| Finding | Resolution |
-|---|---|
-| Activity types listed incorrectly (`updated`, `deleted`, `shared`) | ✅ Fixed — corrected to official enum: `created`, `modified`, `commented`, `viewed` |
-| ACL values should use Entra object IDs, not emails | ✅ Fixed — updated examples and added translation guidance |
-| Missing `everyoneExceptGuests` ACL type | ✅ Fixed — added to ACL types list |
-| CSV connector source-bound to SharePoint/ADLS | ✅ Fixed — updated with source limitations and ACL precedence |
-| Missing federated connectors coverage | ✅ Fixed — added to tool matrix, decision flowchart, and aggregation strategies |
-| Missing Agents Toolkit as a development option | ✅ Fixed — added to tool comparison matrix |
-| Semantic labels list incomplete | ✅ Fixed — added note with extended labels and link to current docs |
-| Refinable/DateTime type conflict between prose and examples | ✅ Fixed — updated to include DateTime as refinable-capable |
-| `iconUrl` missing from scenario schemas | ✅ Acknowledged — noted as required in Copilot optimization checklist |
-
-### GPT-5.4 Unique Findings
-
-| Finding | Resolution |
-|---|---|
-| Prerequisites should split permissions by operation | ✅ Fixed — clarified connection vs. item permissions |
-| People connectors need separate treatment | ✅ Fixed — added callouts in intro and HR section |
-| Chunking page-count heuristic too aggressive | ✅ Fixed — changed to serialized-size-based guidance |
-| Missing `@odata.type` ingestion gotchas | ✅ Fixed — added "Ingestion Gotchas" subsection |
-| `urlToItemResolver` sample incomplete | Noted — readers directed to official API reference |
-| Property descriptions marked as future (Q4 2025) | ✅ Fixed — updated as currently available |
-| Additional data types missing (collections, principal) | ✅ Fixed — expanded data type table |
-| `contentCategory` connection property missing | ✅ Fixed — added to connection description guidance |
-| Power Platform misframed as content ingestion path | ✅ Fixed — reframed as actions/extensibility path |
-| Admin center navigation paths potentially stale | Noted — readers advised to check current admin center layout |
-
-### Codex-5.3 Unique Findings
-
-| Finding | Resolution |
-|---|---|
-| 25 concurrent operations per connection limit | ✅ Fixed — added to limits table and semaphore guidance |
-| Only `title` label usable in Copilot prompts currently | ✅ Fixed — added caveat in Copilot optimization section |
-| Rank hints guidance missing | ✅ Fixed — added rank hints step in surfacing section |
-| External groups operational guardrail (~2,049 memberships) | Noted — documented in external groups guidance |
-| Experience status (GA/Preview) tagging | ✅ Fixed — added status column to experience table |
-
-### No Conflicts Between Models
-
-Both models agreed on all factual points. Where one model identified an issue the other did not, the findings were additive and non-contradictory. All substantive findings have been incorporated into the document.
-
-## Appendix B: Key Links & References
+## Appendix A: Key Links & References
 
 | Resource | URL |
 |---|---|
