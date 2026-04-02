@@ -83,13 +83,14 @@ Items ingested through connectors consume your organization's **item quota**. Ev
 
 | Tool | Language | Best For | Complexity | On-Prem Support |
 |---|---|---|---|---|
-| **Copilot Connectors SDK** | C# (primary), any gRPC language | Production-grade custom connectors with full crawl management | Medium | ✅ Via connector agent |
-| **Microsoft Graph REST API** | Any (HTTP) | Maximum flexibility, polyglot teams, serverless architectures | Medium-High | ✅ If ingestion app runs on-prem/hybrid |
-| **Pre-built connectors** | No code | 100+ supported data sources (ServiceNow, Salesforce, Jira, etc.) | Low | Varies |
 | **Microsoft 365 Agents Toolkit** | TypeScript/C# | New custom connectors with integrated agent development | Medium | ❌ Cloud-only |
-| **Power Platform connectors** | Low-code | Connector *actions* and extensibility (not primary content ingestion) | Low | Via on-prem gateway |
-| **Graph Connector Agent** | N/A (agent) | On-premises data sources, bridge to cloud indexing | Low-Medium | ✅ Primary purpose |
+| **Microsoft Graph REST API** | Any (HTTP) | Maximum flexibility, polyglot teams, serverless architectures | Medium-High | ✅ If ingestion app runs on-prem/hybrid |
 | **Federated connectors** (Preview) | Any (HTTP) | Real-time, non-indexed access to live external data | Medium | Varies |
+| **Pre-built connectors** | No code | 100+ supported data sources (ServiceNow, Salesforce, Jira, etc.) | Low | Varies |
+| **Power Platform connectors** | Low-code | Connector *actions* and extensibility (not primary content ingestion) | Low | Via on-prem gateway |
+| **Copilot Connectors SDK** | C# (primary), any gRPC language | Production-grade custom connectors with full crawl management | Medium | ✅ Via connector agent |
+| **Graph Connector Agent** | N/A (agent Windows Only) | On-premises data sources, bridge to cloud indexing | Low-Medium | ✅ Primary purpose |
+
 
 > 📌 **Synced vs. Federated connectors**: Synced connectors (SDK, REST API) **index** content into Microsoft Graph for offline search and Copilot reasoning. Federated connectors (preview) provide **live, read-only** access without indexing — ideal for sensitive, fast-changing, or aggregation-heavy data where pre-computation is impractical.
 
