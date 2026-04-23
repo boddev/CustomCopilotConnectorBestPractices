@@ -63,11 +63,20 @@ Microsoft 365 Copilot Connectors (formerly Microsoft Graph Connectors) bring ext
 
 ### Licensing & Item Quota
 
-Items ingested through connectors consume your organization's **item quota**. Every Microsoft 365 license that includes Microsoft Search also includes connector item quota. Additional quota can be purchased through the **Microsoft Graph Connectors Capacity** add-on. Check your current usage in the M365 Admin Center under **Search & intelligence > Connectors**.
+All organizations with Microsoft 365 licenses can access Copilot connectors. Your organization's licensing determines access to experiences such as Microsoft 365 Copilot and Microsoft Search that surface connector content.
+
+Copilot connectors work across multiple Microsoft 365 surfaces. The surfaces available to your users depend on your organization's licensing.
+
+| License | Microsoft Search | Microsoft 365 Copilot grounding | Copilot Chat agents (grounded on connector data) |
+|---|---|---|---|
+| Microsoft 365 (any plan) | ✅ | ❌ | ❌ |
+| Microsoft 365 + Microsoft 365 Copilot add-on | ✅ | ✅ | ✅ |
+| Copilot Studio license | ✅ | ❌ | ✅ |
+| Usage billing (pay-as-you-go) enabled in tenant | ✅ | ❌ | ✅ |
 
 ### Prerequisites
 
-- Microsoft 365 tenant with appropriate licenses
+- Microsoft 365 tenant with appropriate licenses.
 - Application registration in Microsoft Entra ID with the following permissions:
   - **Connection & schema management**: `ExternalConnection.ReadWrite.OwnedBy` (or `.All` for broader access)
   - **Item ingestion**: `ExternalItem.ReadWrite.OwnedBy` (or `.All`)
