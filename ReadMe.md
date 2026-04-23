@@ -1635,6 +1635,64 @@ When presenting to your security team, emphasize:
 4. **ACL enforcement** — Ingested items inherit source system permissions; M365 Search enforces these at query time so users only see items they have access to in the source system
 5. **Blast radius is limited** — Even in a worst-case credential compromise, the attacker cannot access emails, files, calendars, Teams, or OneDrive; they can only interact with this app's own external connections
 
+### 12.10 Optional: Lightweight Admin Portal
+
+For production-grade custom connectors, consider building a **lightweight admin portal** — a simple web-based dashboard that gives connector administrators self-service control over the connector's behavior without requiring code changes or redeployments. This is an optional enhancement that significantly improves operational agility and reduces the burden on development teams for day-to-day connector management.
+
+> 💡 **Why build an admin portal?** Custom connectors often need operational adjustments — triggering a re-crawl after a bulk data import, tweaking which fields are indexed, or temporarily pausing ingestion during a source system migration. Without an admin portal, every operational change requires a developer to modify configuration and redeploy. A lightweight admin UI empowers connector administrators to handle these tasks independently.
+
+#### Recommended Capabilities
+
+| Capability | Description | Benefit |
+|---|---|---|
+| **On-demand crawl triggers** | Button to trigger a full or incremental crawl immediately, outside the normal schedule | Enables rapid re-sync after bulk data changes, schema updates, or incident recovery |
+| **Crawl schedule configuration** | Adjust full and incremental crawl frequencies without redeployment | Allows administrators to fine-tune sync frequency based on data change patterns |
+| **Connection & schema status** | Real-time view of connection health, schema state, item counts, and quota usage | Provides at-a-glance operational awareness without navigating the M365 Admin Center |
+| **Field mapping configuration** | Select which source fields map to which schema properties; toggle fields on/off | Enables non-developers to adjust what data is indexed as source systems evolve |
+| **Content formatting options** | Configure how the `content` property is assembled (field order, labels, separators) | Fine-tune Copilot's understanding of your data without code changes |
+| **ACL mode selection** | Switch between ACL strategies (e.g., everyone, per-item, group-based) | Adapt access control as organizational requirements change |
+| **Crawl history & error logs** | View recent crawl runs, success/failure counts, and detailed error messages | Accelerates troubleshooting without requiring access to application logs |
+| **Pause / resume ingestion** | Temporarily halt crawls during source system maintenance windows | Prevents errors and wasted API calls during planned downtime |
+| **Feature toggles** | Enable or disable optional features (e.g., chunking, content summarization, delta detection) | Allows gradual rollout and A/B testing of connector features |
+
+#### Architecture Considerations
+
+```
+┌──────────────────────┐        ┌───────────────────────────────┐
+│  Admin Portal (Web)  │───────▶│  Connector Backend / API      │
+│  (React, Blazor,     │  REST  │                               │
+│   or minimal HTML)   │  API   │  • Reads/writes config store  │
+└──────────────────────┘        │  • Triggers crawl endpoints   │
+                                │  • Exposes health & metrics   │
+                                └───────────────┬───────────────┘
+                                                │
+                                   ┌────────────┴────────────┐
+                                   ▼                         ▼
+                          ┌─────────────────┐     ┌───────────────────┐
+                          │  Config Store    │     │  Microsoft Graph  │
+                          │  (App Config,   │     │  (Connections,    │
+                          │   Cosmos DB,    │     │   Items, Schema)  │
+                          │   or Table      │     │                   │
+                          │   Storage)      │     │                   │
+                          └─────────────────┘     └───────────────────┘
+```
+
+#### Implementation Guidelines
+
+1. **Keep it lightweight** — This is an operational dashboard, not a full application. A single-page app with a handful of views is sufficient. Frameworks like Blazor Server, React with a minimal API backend, or even static HTML with Azure Functions endpoints all work well.
+
+2. **Secure with Entra ID authentication** — Protect the admin portal using Microsoft Entra ID (Azure AD) authentication. Restrict access to a security group of authorized connector administrators. Never expose the portal without authentication.
+
+3. **Store configuration externally** — Use Azure App Configuration, Azure Table Storage, or Cosmos DB to persist connector settings. The connector process reads from this config store on each crawl, so configuration changes take effect on the next run without redeployment.
+
+4. **Expose crawl trigger endpoints** — Implement a simple REST API endpoint (e.g., `POST /api/crawl/trigger?type=full`) that the admin portal calls to queue an on-demand crawl. Protect this endpoint with the same Entra ID authentication as the portal.
+
+5. **Surface operational metrics** — Display key metrics such as items indexed, last crawl time, error rate, and quota usage. Pull this data from both your connector's internal telemetry and the Microsoft Graph External Connections API.
+
+6. **Audit all admin actions** — Log every configuration change and manual crawl trigger with the authenticated user's identity, timestamp, and the change made. This supports compliance requirements and change tracking.
+
+> ⚠️ **Security reminder**: The admin portal must be protected with the same rigor as the connector itself. Use Entra ID authentication, restrict to authorized administrators, and ensure all configuration changes are audited. The portal should never expose secrets or allow direct modification of Key Vault entries.
+
 ---
 
 ## 13. Monitoring, Testing & Troubleshooting
@@ -1740,6 +1798,7 @@ Monitor connector health in the **M365 Admin Center** under **Search & intellige
 - [ ] Permission justification package prepared for security team review
 - [ ] Connection auto-recovery logic implemented for full crawl triggers
 - [ ] Secret rotation schedule defined and documented
+- [ ] *(Optional)* Lightweight admin portal deployed with Entra ID authentication for on-demand crawl triggers, configuration management, and operational monitoring
 
 ---
 
