@@ -1,7 +1,7 @@
 # Microsoft 365 Copilot Connectors — Best Practices & Development Guide
 
 > **Audience:** Developers building custom Microsoft 365 Copilot Connectors (formerly Microsoft Graph Connectors)  
-> **Last updated:** March 2026  
+> **Last updated:** April 2026
 > **Sources:** Official Microsoft Learn documentation, Microsoft Graph API reference
 
 ---
@@ -22,8 +22,7 @@
 12. [Enterprise Security & Production Readiness](#12-enterprise-security--production-readiness)
 13. [Monitoring, Testing & Troubleshooting](#13-monitoring-testing--troubleshooting)
 14. [Quick-Reference Checklists](#14-quick-reference-checklists)
-15. [Appendix A: Cross-Reference Reconciliation](#appendix-a-cross-reference-reconciliation-gpt-54--codex-53)
-16. [Appendix B: Key Links & References](#appendix-b-key-links--references)
+15. [Appendix A: Key Links & References](#appendix-a-key-links--references)
 
 ---
 
@@ -163,6 +162,27 @@ This approach gives you full flexibility but requires you to implement your own:
 - Retry logic and throttle management
 - ACL resolution
 
+### TypeScript / Azure Functions Implementation Pattern
+
+When you build directly against Microsoft Graph from a TypeScript service or Azure Functions app, treat the connector as a production data pipeline rather than a single script:
+
+| Concern | Recommended Pattern |
+|---|---|
+| **Provisioning** | Separate connection/schema provisioning from crawl execution. Poll schema registration to completion before item ingestion. |
+| **Crawl triggers** | Use timer triggers for scheduled full/incremental crawls and queue triggers for on-demand full crawls so manual requests do not block HTTP callers. |
+| **State** | Store crawl checkpoints, active crawl IDs, source sync metadata, and known item IDs in durable storage such as Azure Table Storage or Blob Storage. Do not rely on local files in production. |
+| **Throughput** | Combine a rate limiter with a concurrency limiter. Stay below the Graph per-connection concurrency ceiling and honor `Retry-After`. |
+| **Configuration** | Validate required environment variables at startup and fail fast for invalid schedules, batch sizes, app profiles, or Graph API versions. |
+| **Secrets** | Use Managed Identity and Key Vault references for production. Environment variables are acceptable for local development only. |
+| **Admin endpoints** | Require authentication/authorization for dashboards and on-demand crawl APIs; avoid anonymous write endpoints and wildcard CORS in production. |
+
+For Azure Functions specifically, prefer:
+
+1. **`provision` function** — creates/patches the connection, configures `urlToItemResolver`, registers the schema, and waits until schema status is ready.
+2. **`fullCrawl` timer/queue function** — performs complete reconciliation and can recreate the connection if it was deleted.
+3. **`incrementalCrawl` timer function** — processes changes since the last checkpoint, including deletes and permission-only changes.
+4. **`dashboard/status` function** — read-only operational visibility with authenticated access.
+
 ---
 
 ## 3. Schema Design Best Practices
@@ -298,6 +318,34 @@ Aliases are friendly names that users can use in search queries.
 - Use aliases for common synonyms and domain-specific terminology
 - Keep aliases short and intuitive
 - Avoid overly generic or ambiguous aliases
+
+### Profile-Driven and Validated Schemas
+
+For connectors that support multiple related products, business units, or source-system applications, use a **profile-driven schema factory** instead of forking the connector. Define a shared base schema for common fields, then layer profile-specific extensions for each domain.
+
+**When this pattern fits:**
+- One source platform has several application modules with overlapping concepts (for example, documents, objects, workflows, and relationships)
+- Each module needs a different connector name, description, known object list, or declarative-agent behavior
+- You want one tested ingestion engine while preserving domain-specific fields and vocabulary
+
+**Profile contents to standardize:**
+
+| Profile Element | Purpose |
+|---|---|
+| Connector ID, name, description | Keeps each connection discoverable and specific to the business domain |
+| Known object/entity types | Seeds object discovery and prevents indexing irrelevant system extracts |
+| Schema extensions | Adds module-specific fields without duplicating the base schema |
+| Agent name/description/instructions | Aligns the Copilot experience to domain terminology |
+
+**Schema validation guardrails:**
+- Validate property names are alphanumeric and within Graph limits before registration.
+- Detect duplicate property names after base + extension merge.
+- Enforce `searchable`/`refinable` exclusivity in code and tests.
+- Verify only `String` and `StringCollection` properties are marked searchable.
+- Keep property descriptions concise and useful for maintainers.
+- Test all schema profiles, including beta-only capabilities such as `rankingHint`, before deployment.
+
+> 💡 Schema factories are especially useful when the same connector engine must serve multiple regulated domains. They reduce code duplication while making schema differences explicit and testable.
 
 ### Example Schema: Work Ticket System
 
@@ -520,6 +568,25 @@ var externalItem = new ExternalItem
 ```
 
 > 💡 **Key principle**: Put unstructured, searchable text in `content`. Keep structured, filterable values as separate schema properties. Duplicate into `content` only what helps Copilot understand the item contextually.
+
+### Domain Content Templates
+
+Create a repeatable content template per entity type instead of concatenating fields opportunistically. A good template puts the highest-value answer fields first, keeps source attribution close to the facts, and uses consistent labels so Copilot can interpret records across sources.
+
+**Recommended ordering:**
+
+1. **Identity and scope** — title, country/region, product, document number, object type, or other fields users naturally ask for
+2. **Primary facts** — status, indicator value, version, lifecycle, approval state, owner, effective/expiration dates
+3. **Business context** — source organization, dataset, methodology, classification, related documents, workflow state
+4. **Traceability** — source URL, source system, last modified date, units, caveats, and data freshness
+
+For mixed entity connectors, keep separate templates for documents, objects, relationships, workflows, summaries, and deleted/retired records. This avoids noisy generic content and improves Copilot grounding.
+
+**Anti-patterns to avoid:**
+- Dumping every raw field into `content` without labels
+- Repeating boilerplate legal text, navigation, or unchanged headers in every item
+- Hiding units, methodology, or source attribution only in properties
+- Placing low-value metadata before the facts users ask about
 
 ---
 
@@ -763,6 +830,27 @@ This ensures Copilot can correctly attribute and contextualize information even 
 4. **Include the `url` that deep-links to the specific section** when possible
 5. **Track chunk metadata** — Store `parentDocId`, `chunkIndex`, and `totalChunks` as queryable properties for administration
 
+### Item ID and Lifecycle Strategy
+
+Item IDs are part of your connector's long-term contract with Microsoft Graph. Changing them creates duplicate items unless you delete or migrate the old IDs.
+
+**Recommended ID design:**
+
+| Scenario | ID Pattern | Notes |
+|---|---|---|
+| Source record | `{sourcePrefix}-{stablePrimaryKey}` | Use the source system's immutable key, not display names or titles |
+| Versioned document | `doc-{versionId}` or `doc-{documentId}-v{major}-{minor}` | Choose whether each version is independently searchable |
+| Chunked document | `{baseItemId}_chunk{index}` | Keep `parentDocumentId`, `chunkIndex`, and `totalChunks` properties |
+| Relationship item | `rel-{sourceId}-{relationshipType}-{targetId}` | Useful when relationships carry searchable meaning |
+| Summary item | `summary-{scope}-{period}` | Use predictable IDs so summary upserts replace prior summaries |
+
+**Lifecycle rules:**
+- Sanitize IDs to URL-safe characters before PUT/DELETE calls.
+- Keep IDs stable across full and incremental crawls so upserts are idempotent.
+- Track known item IDs or source delete feeds so removed source records are deleted from Graph.
+- If an ID strategy changes, run a migration that deletes old IDs after new IDs are indexed and validated.
+- Use deterministic IDs for retries; never generate random IDs during normal ingestion.
+
 ---
 
 ## 7. Handling Large Payloads
@@ -836,6 +924,33 @@ await Task.WhenAll(tasks);
 | **Event-based** | Push updates on source events (webhook, change feed) | Dynamic/sensitive data (ticket status changes, real-time updates) |
 | **Scheduled** | Push at regular intervals | Content-rich, infrequently updated data (wiki pages, documentation) |
 
+### Production Crawl Orchestration
+
+Production connectors need explicit state transitions and resumability. Long crawls can exceed runtime budgets, source APIs can fail mid-file, and permissions can change without content changing.
+
+**State to persist durably:**
+- Last full crawl completion time and source high-water mark
+- Last incremental checkpoint or delta token
+- Current crawl type/status (`idle`, `running`, `paused`, `failed`)
+- Active crawl ID or lock owner to reject stale queue messages
+- Resume cursor, phase, or file index for long full crawls
+- Items processed, items deleted, total items, and last heartbeat
+- Per-source item counts, sync timestamps, and optional content hashes
+
+**Incremental crawl requirements:**
+1. Start from the last successful full or incremental checkpoint.
+2. Process change files or delta pages in chronological order.
+3. Advance the checkpoint only after the current file/page is processed successfully.
+4. Handle source deletes by calling `DELETE /external/connections/{connectionId}/items/{itemId}`.
+5. Refresh ACL mappings on a cadence that matches the source system's permission-change expectations.
+6. Detect permission-only changes even when the document content is unchanged.
+
+**Long-running full crawls:**
+- Periodically checkpoint progress and heartbeat so the next timer invocation can resume safely.
+- Pause before the compute time budget is exhausted instead of risking abrupt termination.
+- Break stale locks only after a conservative timeout and log why the lock was cleared.
+- Keep full crawl reconciliation separate from incremental freshness; both are needed.
+
 ### Handling Items Near the 4 MB Limit
 
 If a single item approaches the 4 MB limit:
@@ -873,6 +988,20 @@ else
     await IngestWithRetry(externalItem);
 }
 ```
+
+### Production Retry and Poison Item Handling
+
+Retry policies should be explicit and idempotent:
+
+- Retry transient source and Graph failures: `408`, `429`, `500`, `502`, `503`, and `504`.
+- Honor `Retry-After` when present; otherwise use exponential backoff with jitter and a maximum delay.
+- Treat non-retryable validation errors as item failures, not crawl-wide transient failures.
+- Keep upserts idempotent by using deterministic item IDs and complete replacement payloads.
+- Log the operation name, item ID, status code, attempt number, and final error.
+- Put repeatedly failing items in a dead-letter queue or failure table with enough payload context to reprocess after correction.
+- Continue the crawl when individual items fail, but fail the crawl when source checkpoint integrity is at risk.
+
+> ⚠️ Do not silently swallow failed item writes. A "successful" crawl with hidden item failures causes stale or missing data that is difficult to diagnose from Copilot.
 
 ---
 
@@ -1273,6 +1402,28 @@ When building a **Declarative Agent** that uses your connector as a knowledge so
 3. **Document aggregation boundaries** — explain what summary data is available (see Section 9)
 4. **Provide example queries** — include sample natural-language questions and expected data sources
 
+#### Agent Instruction Recipe
+
+A connector-backed agent should make the connector's data model explicit. Include:
+
+- **Connector-first behavior**: tell the agent when to search the connector before using general knowledge.
+- **Property glossary**: describe important properties, units, lifecycle values, and domain synonyms.
+- **Entity inventory**: list item types such as documents, objects, relationships, workflows, summaries, or reference records.
+- **Aggregation policy**: instruct the agent to prefer summary items for counts, totals, and trends.
+- **Source attribution**: require answers to cite source system, URL, date, units, and version where available.
+- **Boundary conditions**: state when the data may be incomplete, delayed, sampled, or not suitable for exact totals.
+- **Example prompts**: include realistic user questions for each supported domain.
+
+Example instruction fragment:
+
+```text
+When answering questions about this domain, search the connector first.
+For numeric totals, trends, or counts, look for items where recordType = "summary"
+or entityType = "summary" before using detail records. Include source, unit,
+period, and URL in answers. Do not present the number of retrieved search results
+as an authoritative total.
+```
+
 ---
 
 ## 11. Access Control & Security
@@ -1319,6 +1470,22 @@ For data sources with non-Entra ID permissions (e.g., custom role systems):
 3. External groups can contain: other external groups, Entra ID users, Entra ID groups
 
 > ⚠️ **Avoid expanding group membership directly into individual item ACLs** — This leads to excessive item updates when group membership changes. Use external groups instead.
+
+### ACL Mapping Fidelity
+
+Your ACL mapper should preserve the source system's effective visibility, not just copy raw role membership.
+
+**Recommended mapping flow:**
+
+1. Load users and groups from the source system and cache them for the crawl run.
+2. Prefer source fields that already contain Entra object IDs or federated IDs.
+3. Resolve source users/groups to Entra object IDs; validate GUID format before writing ACLs.
+4. For source groups without Entra equivalents, create and sync external groups.
+5. Apply lifecycle, status, workspace, or object-level rules that determine whether a role actually grants view access.
+6. Emit deny-all or fail the item when permissions cannot be resolved for sensitive content; do not fall back to broad access.
+7. Refresh ACL caches during incremental crawls so permission-only changes are indexed promptly.
+
+**Public content exception:** Use `everyone` only when the source data is intentionally public to all tenant users. Prefer `everyoneExceptGuests` when licensed employees should see the content but guests should not.
 
 ### Best Practices
 
@@ -1400,6 +1567,17 @@ Production connectors must **never store credentials in source code, configurati
 | **Device code flow** | ❌ Not for production | Interactive development only |
 
 > ⚠️ **Never use** client secrets, device code flow, or service principal passwords directly in your connector code for production deployments. Always use Managed Identity when running in Azure.
+
+#### Secret Rotation and Environment Strategy
+
+Plan secret rotation before launch:
+
+- Store Graph and source-system secrets as separate Key Vault secrets with clear names per environment (`dev`, `test`, `prod`).
+- Prefer Key Vault references in Function App/App Service configuration so the app does not read raw secrets from checked-in settings files.
+- Rotate source-system credentials and Graph app credentials independently; document owner, cadence, and validation steps.
+- Support overlapping credentials or certificates where the source system allows it so rotation does not require downtime.
+- Keep local development secrets in untracked local settings or developer secret stores; never commit `local.settings.json`, `.env`, or generated deployment parameter files containing secrets.
+- Log that a secret version changed or authentication succeeded, but never log secret values, tokens, passwords, session IDs, or authorization headers.
 
 ### 12.3 Source System Security Hardening
 
@@ -1590,6 +1768,18 @@ Production connectors must run as reliable, unattended daemon workloads with sch
 
 > 💡 **Connection auto-recovery**: Design your connector so that if the external connection is deleted (e.g., by an attacker or accidental admin action), the next scheduled crawl automatically recreates the connection, reregisters the schema, and performs a full re-ingestion.
 
+#### Azure Functions Deployment Checklist
+
+For Function App deployments:
+
+- Use separate Function Apps, storage accounts, Key Vaults, and Graph connections per environment.
+- Pin Node/.NET/Python runtime versions and validate package-lock or equivalent lockfiles in CI.
+- Deploy with slots when possible; warm up and validate provisioning before swapping production traffic.
+- Store crawl state in Azure Table Storage, Blob Storage, or another durable service, not the function filesystem.
+- Configure timer schedules via environment variables so dev/test/prod can run at different frequencies.
+- Restrict HTTP-triggered admin endpoints with Easy Auth, Entra ID, function keys, private endpoints, or an authenticated front end.
+- Define Application Insights alerts for crawl failures, repeated item failures, stale checkpoints, and quota growth.
+
 ### 12.8 Audit Logging & IP Allowlisting
 
 #### Source System Audit Logging
@@ -1723,6 +1913,34 @@ Monitor connector health in the **M365 Admin Center** under **Search & intellige
 - Crawl history and errors
 - Throughput metrics
 
+### Automated Test Coverage
+
+Production connectors should include automated tests for the parts most likely to cause reingestion or data exposure issues:
+
+| Test Area | What to Verify |
+|---|---|
+| **Configuration** | Required variables fail fast; numeric schedules/batch sizes are validated; app/profile names are constrained |
+| **Schema factory** | No duplicate properties; Graph naming limits; `searchable`/`refinable` exclusivity; required semantic labels |
+| **Content processing** | Item IDs are deterministic; payloads stay below size limits; chunk metadata is correct; content templates include attribution |
+| **ACL mapping** | Entra IDs are validated; external groups are used for non-Entra groups; unresolved sensitive ACLs do not broaden access |
+| **Crawl state** | Checkpoints advance only after success; paused crawls resume; stale locks are handled intentionally |
+| **Graph client** | Upsert/delete payload shape, collection `@odata.type`, retry/backoff behavior, and 404 delete tolerance |
+
+Use fixture payloads from the source system for regression tests. For integration tests, run against isolated non-production Graph connections and source tenants so failed tests cannot pollute production search results.
+
+### Observability Requirements
+
+Log structured operational events with a crawl ID and, where applicable, source file/page, item ID, and operation name. At minimum, emit metrics for:
+
+- Items discovered, ingested, updated, deleted, skipped, failed, and dead-lettered
+- Crawl duration, current phase, heartbeat age, and checkpoint position
+- Source API latency, rate-limit responses, and authentication/session refreshes
+- Graph 429/5xx counts, retry attempts, and final failures
+- ACL resolution failures and external group sync counts
+- Payloads trimmed or chunked because of size limits
+
+Never log secret values, access tokens, session IDs, raw authorization headers, or full sensitive document content.
+
 ### Common Issues and Resolutions
 
 | Issue | Cause | Resolution |
@@ -1765,27 +1983,35 @@ Monitor connector health in the **M365 Admin Center** under **Search & intellige
 - [ ] Inline results enabled in the "All" vertical
 - [ ] Throttle handling and retry logic implemented
 - [ ] Incremental crawl strategy defined for ongoing sync
+- [ ] Durable crawl state and checkpoint storage configured
+- [ ] Delete handling implemented for removed source records
 - [ ] Items within 4 MB size limit (chunked if necessary)
+- [ ] Deterministic, URL-safe item ID strategy documented
+- [ ] Automated schema/content/ACL tests passing
 
 ### Copilot Optimization Checklist
 
 - [ ] Content is information-dense and well-structured
 - [ ] Content leads with the most important information
 - [ ] Multiple text fields concatenated into content with labels
+- [ ] Domain-specific content templates include source, unit, date, and URL attribution
 - [ ] Summary items ingested for aggregate data queries
 - [ ] Declarative Agent instructions include property descriptions
 - [ ] Declarative Agent instructions address aggregation limitations
+- [ ] Declarative Agent instructions tell the agent when to search the connector first
 - [ ] Properties have clear, descriptive names (not abbreviations)
 - [ ] Aliases defined for common synonyms
 
 ### Security Checklist
 
 - [ ] ACLs mirror source system permissions
+- [ ] ACL mapping accounts for lifecycle/status/object-level view rules
 - [ ] External groups used for non-Entra ID permissions
 - [ ] Group memberships not expanded into individual ACLs
 - [ ] `deny` entries used sparingly and intentionally
 - [ ] Compliance content type set to `text` (if applicable)
 - [ ] Sensitive data excluded or properly access-controlled
+- [ ] Admin/dashboard HTTP endpoints require authentication and restricted CORS
 
 ### Enterprise Security & Production Readiness Checklist
 
@@ -1807,6 +2033,8 @@ Monitor connector health in the **M365 Admin Center** under **Search & intellige
 - [ ] Permission justification package prepared for security team review
 - [ ] Connection auto-recovery logic implemented for full crawl triggers
 - [ ] Secret rotation schedule defined and documented
+- [ ] Per-environment Function App/Storage/Key Vault/Graph connection isolation in place
+- [ ] Application Insights alerts configured for failed crawls, stale checkpoints, and repeated item failures
 - [ ] *(Optional)* Lightweight admin portal deployed with Entra ID authentication for on-demand crawl triggers, configuration management, and operational monitoring
 
 ---
